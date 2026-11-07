@@ -1,40 +1,123 @@
-let products = [
-  { id: 1, name: 'Buku', price: 15000 },
-  { id: 2, name: 'Pulpen', price: 5000 },
-];
+const { PrismaClient } = require('@prisma/client');
 
-const getAllProducts = (req, res) => {
-  res.status(200).json(products);
+const prisma = new PrismaClient();
+
+const parseProductId = (value) => {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
 };
 
-const getProductById = (req, res) => {
-  const productId = parseInt(req.params.id, 10);
-  const product = products.find((p) => p.id === productId);
+const validateProduct = (body) => {
+  const { name, price } = body;
+  const parsedPrice = Number(price);
 
-  if (!product) {
-    return res.status(404).json({ message: 'Produk tidak ditemukan' });
+  if (typeof name !== 'string' || name.trim() === '') {
+    return 'Nama produk wajib diisi';
   }
 
-  res.status(200).json(product);
+  if (price === undefined || price === null || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
+    return 'Harga produk harus berupa angka yang tidak negatif';
+  }
+
+  return null;
 };
 
-const createProduct = (req, res) => {
-  const { name, price } = req.body;
+const getAllProducts = async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      orderBy: { id: 'asc' },
+    });
+    res.status(200).json(products);
+  } catch (error) {
+    res.status(500).json({ message: 'Gagal mengambil data produk' });
+  }
+};
 
-  const newId = products.length > 0 ? Math.max(...products.map((p) => p.id)) + 1 : 1;
+const getProductById = async (req, res) => {
+  const productId = parseProductId(req.params.id);
+  if (!productId) {
+    return res.status(400).json({ message: 'ID produk tidak valid' });
+  }
 
-  const newProduct = {
-    id: newId,
-    name: name,
-    price: Number(price),
-  };
+  try {
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) {
+      return res.status(404).json({ message: 'Produk tidak ditemukan' });
+    }
+    res.status(200).json(product);
+  } catch (error) {
+    res.status(500).json({ message: 'Gagal mengambil data produk' });
+  }
+};
 
-  products.push(newProduct);
-  res.status(201).json(newProduct);
+const createProduct = async (req, res) => {
+  const validationError = validateProduct(req.body);
+  if (validationError) {
+    return res.status(400).json({ message: validationError });
+  }
+
+  try {
+    const product = await prisma.product.create({
+      data: {
+        name: req.body.name.trim(),
+        price: Number(req.body.price),
+      },
+    });
+    res.status(201).json(product);
+  } catch (error) {
+    res.status(500).json({ message: 'Gagal membuat produk' });
+  }
+};
+
+const updateProduct = async (req, res) => {
+  const productId = parseProductId(req.params.id);
+  if (!productId) {
+    return res.status(400).json({ message: 'ID produk tidak valid' });
+  }
+
+  const validationError = validateProduct(req.body);
+  if (validationError) {
+    return res.status(400).json({ message: validationError });
+  }
+
+  try {
+    const product = await prisma.product.update({
+      where: { id: productId },
+      data: {
+        name: req.body.name.trim(),
+        price: Number(req.body.price),
+      },
+    });
+    res.status(200).json(product);
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ message: 'Produk tidak ditemukan' });
+    }
+    res.status(500).json({ message: 'Gagal memperbarui produk' });
+  }
+};
+
+const deleteProduct = async (req, res) => {
+  const productId = parseProductId(req.params.id);
+  if (!productId) {
+    return res.status(400).json({ message: 'ID produk tidak valid' });
+  }
+
+  try {
+    await prisma.product.delete({ where: { id: productId } });
+    res.status(200).json({ message: 'Produk berhasil dihapus' });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ message: 'Produk tidak ditemukan' });
+    }
+    res.status(500).json({ message: 'Gagal menghapus produk' });
+  }
 };
 
 module.exports = {
   getAllProducts,
   getProductById,
   createProduct,
+  updateProduct,
+  deleteProduct,
 };
